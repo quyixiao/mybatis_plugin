@@ -8,6 +8,9 @@ import com.admin.crawler.utils.t.PluginTuple;
 import com.admin.crawler.utils.t.Tuple1;
 import com.admin.crawler.utils.t.Tuple2;
 import com.admin.crawler.utils.t.Tuple3;
+import com.baomidou.mybatisplus.core.MybatisMapperRegistry;
+import com.baomidou.mybatisplus.core.override.MybatisMapperMethod;
+import com.baomidou.mybatisplus.core.override.MybatisMapperProxyFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.annotations.ResultMap;
 import org.apache.ibatis.annotations.*;
@@ -117,6 +120,18 @@ public class CustomerMapperBuilder extends MapperAnnotationBuilder {
             }
         }
         parsePendingMethods();
+        Object mapperRegistry = configuration.getMapperRegistry();
+
+        if (mapperRegistry instanceof MybatisMapperRegistry) {
+            baomidouMyBatis(pluginTuples);
+        } else if (mapperRegistry instanceof MapperRegistry) {
+            originMyBatis(pluginTuples);
+        }
+    }
+
+
+
+    public void originMyBatis(List<PluginTuple> pluginTuples) {
         try {
             MapperRegistry mapperRegistry = configuration.getMapperRegistry();
             Map<Class<?>, MapperProxyFactory<?>> knownMappers = SqlParseUtils.getFieldValue(mapperRegistry, "knownMappers");
@@ -131,6 +146,34 @@ public class CustomerMapperBuilder extends MapperAnnotationBuilder {
                         mapperMethod = new MapperMethod(mapperProxyFactory.getMapperInterface(), method, configuration);
                     } else {
                         mapperMethod = new MapperMethod(type, method, configuration);
+                    }
+                    MapperMethod.MethodSignature methodSignature = SqlParseUtils.getFieldValue(mapperMethod, "method");
+                    ParamNameResolver paramNameResolver = SqlParseUtils.getFieldValue(methodSignature, "paramNameResolver");
+                    SqlParseUtils.setFieldValue(paramNameResolver, "hasParamAnnotation", data.getFirst());
+                    methodCache.put(method, mapperMethod);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    public void baomidouMyBatis(List<PluginTuple> pluginTuples) {
+        try {
+            MybatisMapperRegistry mapperRegistry = (MybatisMapperRegistry) configuration.getMapperRegistry();
+            Map<Class<?>, MybatisMapperProxyFactory<?>> knownMappers = SqlParseUtils.getFieldValue(mapperRegistry, "knownMappers");
+            MybatisMapperProxyFactory mapperProxyFactory = knownMappers.get(type);
+            Map<Method, MybatisMapperMethod> methodCache = mapperProxyFactory.getMethodCache();
+            for (PluginTuple pluginTuple : pluginTuples) {
+                Tuple2<Boolean, Method> data = pluginTuple.getData();
+                Method method = data.getSecond();
+                MybatisMapperMethod mapperMethod = methodCache.get(method);
+                if (mapperMethod == null) {
+                    if (mapperProxyFactory.getMapperInterface() != null) {
+                        mapperMethod = new MybatisMapperMethod(mapperProxyFactory.getMapperInterface(), method, configuration);
+                    } else {
+                        mapperMethod = new MybatisMapperMethod(type, method, configuration);
                     }
                     MapperMethod.MethodSignature methodSignature = SqlParseUtils.getFieldValue(mapperMethod, "method");
                     ParamNameResolver paramNameResolver = SqlParseUtils.getFieldValue(methodSignature, "paramNameResolver");
@@ -315,12 +358,8 @@ public class CustomerMapperBuilder extends MapperAnnotationBuilder {
     }
 
     private LanguageDriver getLanguageDriver(Method method) {
-        Lang lang = method.getAnnotation(Lang.class);
-        Class<?> langClass = null;
-        if (lang != null) {
-            langClass = lang.value();
-        }
-        return assistant.getLanguageDriver(langClass);
+
+        return assistant.getLanguageDriver(null);
     }
 
 
